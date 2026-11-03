@@ -1,0 +1,17 @@
+services:
+  web:
+    build: .
+    image: vieture-studio:latest
+    container_name: vieture-studio
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Requests arrive through Nginx on the host
+      TRUST_PROXY: "1"
+    ports:
+      # Host port is configurable (HOST_PORT in .env) so it can sit next to other apps
+      - "127.0.0.1:${HOST_PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data

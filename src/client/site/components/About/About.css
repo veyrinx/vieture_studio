@@ -1,0 +1,68 @@
+.about {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: clamp(2.5rem, 6vw, 7rem);
+  align-items: center;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+}
+
+.stat {
+  padding: clamp(1.5rem, 2.5vw, 2.4rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.stat:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+.stat b {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  display: block;
+  font-size: clamp(2.6rem, 4.5vw, 4.2rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  margin-bottom: 0.6rem;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.stat span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.stat.reveal.is-visible:hover {
+  transform: translateY(-6px);
+  transition-delay: 0ms;
+}
+
+@media (max-width: 1080px) {
+  .about {
+      grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .stats {
+      grid-template-columns: 1fr;
+  }
+}
+
+/* Highlighted words in the intro paragraphs (e.g. the brand name) are bold, as on the original page */
+.about p.lg .flow {
+  font-weight: 800;
+}

@@ -1,0 +1,17 @@
+.direction {
+  text-align: center;
+}
+
+.direction .eyebrow {
+  justify-content: center;
+}
+
+.direction__quote {
+  max-width: 1100px;
+  margin: 0 auto;
+  font-size: clamp(1.6rem, 3.2vw, 3rem);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}

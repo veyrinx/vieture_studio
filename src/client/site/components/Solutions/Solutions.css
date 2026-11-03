@@ -1,0 +1,121 @@
+.tabs {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) 1fr;
+  gap: 1.4rem;
+  align-items: start;
+}
+
+.tabs__list {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  position: sticky;
+  top: calc(var(--nav-h) + 1rem);
+}
+
+.tabs__list button {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.tabs__list button:hover {
+  background: var(--bg-alt);
+  color: var(--text);
+}
+
+.tabs__list button[aria-selected='true'] {
+  color: #fff;
+  background: var(--grad);
+  box-shadow: 0 10px 24px -12px var(--accent-2);
+}
+
+.tabs__icon {
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+}
+
+.tabs__panel {
+  padding: clamp(1.8rem, 4vw, 3.2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--accent-2) 8%, transparent), transparent 55%),
+    var(--surface);
+  box-shadow: var(--shadow);
+  min-height: 100%;
+}
+
+.tabs__panel:focus-visible,
+.tabs__list button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent-2) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.tabs__content {
+  animation: rise 0.45s both;
+}
+
+.tabs__num {
+  font-size: 0.8rem;
+  color: var(--accent-2);
+}
+
+.tabs__content h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  margin-top: 0.6rem;
+  font-size: clamp(1.6rem, 2.6vw, 2.3rem);
+  font-weight: 800;
+}
+
+.tabs__content h4 {
+  margin: 2rem 0 1rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.tabs__cta {
+  margin-top: 2.2rem;
+}
+
+@media (max-width: 1080px) {
+  .tabs {
+      grid-template-columns: 1fr;
+  }
+
+  .tabs__list {
+      position: static;
+  }
+
+  .tabs__list {
+      display: flex;
+      overflow-x: auto;
+      scrollbar-width: none;
+  }
+
+  .tabs__list button {
+      width: auto;
+      flex-shrink: 0;
+      white-space: nowrap;
+  }
+}

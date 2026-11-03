@@ -1,0 +1,65 @@
+.plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.4rem;
+  align-items: stretch;
+}
+
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(1.8rem, 3vw, 2.6rem);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 1.2);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.plan--featured {
+  border: 2px solid transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--grad) border-box;
+  box-shadow: var(--shadow-lg);
+}
+
+.plan__num {
+  font-size: 0.8rem;
+  color: var(--accent-2);
+  margin-bottom: 0.8rem;
+}
+
+.plan h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  font-size: 1.5rem;
+  font-weight: 800;
+}
+
+.plan__best {
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: var(--bg-alt);
+  font-size: 0.93rem;
+}
+
+.plan__best b {
+  color: var(--text);
+}
+
+.plan .ticks {
+  margin: 0.6rem 0 2rem;
+  flex: 1;
+  align-content: start;
+}
+
+@media (max-width: 1080px) {
+  .plans {
+      grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .plans {
+      grid-template-columns: 1fr;
+  }
+}

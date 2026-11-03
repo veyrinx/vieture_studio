@@ -1,0 +1,132 @@
+.bento {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.2rem;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: clamp(1.6rem, 2.2vw, 2.2rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform 0.35s, box-shadow 0.35s;
+}
+
+.card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-lg);
+}
+
+.card--wide {
+  grid-column: span 2;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: radial-gradient(
+    300px circle at var(--mx, 50%) var(--my, 50%),
+    var(--accent),
+    var(--accent-3) 40%,
+    transparent 70%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+.card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1.6rem;
+}
+
+.card__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 1.35rem;
+  color: var(--accent-2);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, transparent), color-mix(in srgb, var(--accent-2) 14%, transparent));
+  transition: transform 0.35s, color 0.35s, background 0.35s;
+}
+
+.card:hover .card__icon {
+  color: #fff;
+  background: var(--grad);
+  transform: rotate(-6deg) scale(1.05);
+}
+
+.card__num {
+  font-size: 0.8rem;
+  color: color-mix(in srgb, var(--muted) 60%, transparent);
+}
+
+.card h3 {
+  font-size: clamp(1.15rem, 1.4vw, 1.4rem);
+}
+
+.card p {
+  flex: 1;
+  margin-bottom: 1.4rem;
+}
+
+.card__more {
+  margin-top: 1.2rem;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent-2);
+  transition: letter-spacing 0.25s;
+}
+
+.card__more:hover {
+  letter-spacing: 0.02em;
+}
+
+.card.reveal.is-visible:hover {
+  transform: translateY(-6px);
+  transition-delay: 0ms;
+}
+
+@media (max-width: 1280px) {
+  .bento {
+      grid-template-columns: repeat(3, 1fr);
+  }
+
+  .card:last-child {
+      grid-column: span 2;
+  }
+}
+
+@media (max-width: 900px) {
+  .bento {
+      grid-template-columns: 1fr 1fr;
+  }
+
+  .bento .card:last-child {
+      grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .bento {
+      grid-template-columns: 1fr;
+  }
+}

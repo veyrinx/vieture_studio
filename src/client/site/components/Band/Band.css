@@ -1,0 +1,56 @@
+.band {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem 3rem;
+  padding: clamp(2rem, 4vw, 3.2rem) clamp(1.6rem, 4vw, 3.6rem);
+  border-radius: calc(var(--radius) * 1.4);
+  background: linear-gradient(120deg, var(--accent), var(--accent-2), var(--accent-3), var(--accent-2));
+  background-size: 300% 300%;
+  animation: band-shift 14s ease-in-out infinite alternate;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: 0 30px 60px -30px var(--accent-2);
+}
+
+.band::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.band > * {
+  position: relative;
+}
+
+.band h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  margin-bottom: 0.4rem;
+  font-size: clamp(1.5rem, 2.6vw, 2.2rem);
+  font-weight: 800;
+}
+
+.band p {
+  margin: 0;
+  max-width: 60ch;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+@keyframes band-shift {
+  to {
+    background-position: 100% 50%;
+  }
+}
+
+@media (max-width: 640px) {
+  .band .btn {
+      width: 100%;
+  }
+}

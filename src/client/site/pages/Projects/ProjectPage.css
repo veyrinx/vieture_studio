@@ -1,0 +1,127 @@
+.case__facts-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem 2rem;
+  max-width: 780px;
+  margin-top: 2rem;
+}
+
+.case__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.2rem 2.6rem;
+  margin: 0;
+}
+
+.case__facts dt {
+  margin-bottom: 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.case__facts dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+.case__stack dd {
+  font-weight: 500;
+}
+
+.case__h {
+  max-width: 1080px;
+  margin: clamp(2.5rem, 5vw, 4rem) auto 1.4rem;
+  font-size: clamp(1.5rem, 2.6vw, 2rem);
+}
+
+.case__results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 1rem;
+  max-width: 1080px;
+  margin: 0 auto clamp(2rem, 4vw, 3rem);
+  padding: 0;
+  list-style: none;
+}
+
+.case__results li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--muted);
+}
+
+.case__results b {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.case__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 1.2rem;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.case__gallery figure {
+  margin: 0;
+}
+
+.case__gallery img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: transform 0.4s;
+}
+
+.case__gallery a:hover img {
+  transform: scale(1.02);
+}
+
+.case__gallery figcaption {
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.case__cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.4rem 2rem;
+  max-width: 1080px;
+  margin: clamp(3rem, 6vw, 5rem) auto 0;
+  padding: clamp(1.6rem, 4vw, 2.6rem);
+  border-radius: calc(var(--radius) * 1.3);
+  background: radial-gradient(ellipse at 0% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+    radial-gradient(ellipse at 100% 100%, color-mix(in srgb, var(--accent-3) 12%, transparent), transparent 60%), var(--bg-alt);
+  border: 1px solid var(--border);
+}
+
+.case__cta h2 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.4rem, 2.6vw, 1.9rem);
+}
+
+.case__cta p {
+  margin: 0;
+  color: var(--muted);
+}

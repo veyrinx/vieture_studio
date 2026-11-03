@@ -1,0 +1,99 @@
+.careers-head h1 {
+  max-width: 18ch;
+}
+
+.careers-head .lg {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--muted);
+}
+
+.jobpage {
+  padding-top: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+.jobpage__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: clamp(2rem, 5vw, 4rem);
+  align-items: start;
+  margin-top: 1rem;
+}
+
+.jobpage__detail h1 {
+  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  font-weight: 850;
+  letter-spacing: -0.04em;
+  margin: 0.2rem 0 1rem;
+}
+
+.jobpage__detail h4 {
+  margin: 2rem 0 0.7rem;
+  font-size: 1.1rem;
+}
+
+
+.jobpage__side {
+  position: sticky;
+  top: calc(var(--nav-h) + 24px);
+}
+
+.jobpage__card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.jobpage__card h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.jobpage__card dl {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.jobpage__card dt {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.jobpage__card dd {
+  margin: 0.15rem 0 0;
+  font-weight: 600;
+}
+
+.jobpage__card .muted {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.jobpage__apply {
+  max-width: 880px;
+  margin: clamp(2.5rem, 6vw, 4rem) auto 0;
+  scroll-margin-top: calc(var(--nav-h) + 16px);
+}
+
+.jobpage__apply .jobdlg__form {
+  margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .jobpage__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .jobpage__side {
+    position: static;
+  }
+}
