@@ -5,7 +5,10 @@ import { projectSlug } from '../../shared/project.ts';
 import type { I18n, Job, Lang, Post, PostSummary, Project } from '../../shared/types.ts';
 import type { Store } from './store.ts';
 
-export const SITE = (process.env.SITE_URL || 'https://vieturestudio.com').replace(/\/$/, '');
+export const SITE = (
+  process.env.SITE_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'https://vieturestudio.com')
+).replace(/\/$/, '');
 const L = (pair: I18n | undefined, lang: Lang) => pair?.[lang] || pair?.vi || pair?.en || '';
 export const today = () => new Date().toISOString().slice(0, 10);
 

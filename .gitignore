@@ -2,6 +2,7 @@ node_modules
 dist
 data
 .env
+.vercel
 *.log
 
 # local test artifacts (may contain session cookies)

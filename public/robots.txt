@@ -1,7 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /admin
-Disallow: /api/
-Disallow: /cdn-cgi/
-
-Sitemap: https://vieturestudio.com/sitemap.xml

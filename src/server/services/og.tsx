@@ -20,10 +20,9 @@ export interface OgCard {
 }
 
 const require = createRequire(import.meta.url);
-const fontDir = path.join(
-  path.dirname(require.resolve("@fontsource/inter/package.json")),
-  "files",
-);
+// Resolved lazily: if the font package is missing at runtime, only OG images fail (the route falls back to og.png).
+const fontDir = () =>
+  path.join(path.dirname(require.resolve("@fontsource/inter/package.json")), "files");
 
 let assets: Promise<{
   fonts: Parameters<typeof satori>[1]["fonts"];
@@ -38,7 +37,7 @@ function load(publicDir: string) {
       weight,
       style: "normal" as const,
       data: await readFile(
-        path.join(fontDir, `inter-${subset}-${weight}-normal.woff`),
+        path.join(fontDir(), `inter-${subset}-${weight}-normal.woff`),
       ),
     });
     const fonts = await Promise.all(

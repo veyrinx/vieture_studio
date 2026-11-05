@@ -1,0 +1,7 @@
+src.zip
+data
+.env
+*.log
+deploy
+Dockerfile
+docker-compose.yml

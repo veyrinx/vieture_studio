@@ -3,7 +3,7 @@
 //   production:   NODE_ENV=production node src/server/index.ts   (serves the build in dist/)
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -20,11 +20,13 @@ import { formsRouter } from './routes/forms.ts';
 import { escapeHtml, plainText } from '../shared/rich.ts';
 import type { Lang, PageData } from '../shared/types.ts';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const root = process.cwd();
 const dist = path.join(root, 'dist');
-const dataDir = process.env.DATA_DIR || path.join(root, 'data');
-const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === 'production';
+const isVercel = Boolean(process.env.VERCEL);
+// Vercel only allows writes under /tmp (and those are per-instance/ephemeral).
+const dataDir = process.env.DATA_DIR || (isVercel ? path.join('/tmp', 'vieture-data') : path.join(root, 'data'));
+const PORT = Number(process.env.PORT) || 3000;
 
 const smtpReady = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 const transporter = smtpReady
@@ -37,14 +39,18 @@ const transporter = smtpReady
   : null;
 
 const store = createStore(dataDir);
-await store.init();
-await bootstrapAdmin();
+// Storage (and the first admin account) is prepared once; requests wait for it.
+const ready = (async () => {
+  await store.init();
+  await bootstrapAdmin();
+})();
+ready.catch((err) => console.error('[server] init failed:', err));
 
 const app = express();
 app.disable('x-powered-by');
 // TRUST_PROXY: a hop count ("1" = one reverse proxy such as Nginx) or an address list ("loopback").
 // Env vars are strings, so a hop count must be converted or Express treats "1" as an address.
-const trustProxy = process.env.TRUST_PROXY ?? 'loopback';
+const trustProxy = process.env.TRUST_PROXY ?? (isVercel ? '1' : 'loopback');
 app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
 // One address for the whole site: http://, www. and the bare server IP permanently redirect to SITE_URL
@@ -83,6 +89,9 @@ app.use(
   })
 );
 app.use(compression());
+app.use((_req, _res, next) => {
+  ready.then(() => next(), next);
+});
 
 // ---------- API ----------
 app.get('/api/health', (_req, res) => {
@@ -109,14 +118,28 @@ if (isProd) {
     if (!cache.has(name)) cache.set(name, await readFile(path.join(dist, 'client', name), 'utf8'));
     return cache.get(name)!;
   };
-  const mod = (await import(pathToFileURL(path.join(dist, 'server', 'entry-server.js')).href)) as { render: Render };
-  render = async () => mod.render;
+  let entry: Promise<{ render: Render }> | null = null;
+  render = async () => {
+    entry ??= import(pathToFileURL(path.join(dist, 'server', 'entry-server.js')).href) as Promise<{ render: Render }>;
+    return (await entry).render;
+  };
 } else {
-  const { createServer } = await import('vite');
-  const vite = await createServer({ root, server: { middlewareMode: true }, appType: 'custom' });
-  app.use(vite.middlewares);
-  template = async (name, url) => vite.transformIndexHtml(url, await readFile(path.join(root, name), 'utf8'));
-  render = async () => ((await vite.ssrLoadModule('/src/client/site/entry-server.tsx')) as { render: Render }).render;
+  // Vite is a dev dependency; the variable keeps it out of the deployed function bundle.
+  let viteServer: Promise<import('vite').ViteDevServer> | null = null;
+  const getVite = () =>
+    (viteServer ??= (async () => {
+      const viteId = 'vite';
+      const { createServer } = (await import(viteId)) as typeof import('vite');
+      return createServer({ root, server: { middlewareMode: true }, appType: 'custom' });
+    })());
+  app.use((req, res, next) => {
+    getVite().then((vite) => vite.middlewares(req, res, next), next);
+  });
+  template = async (name, url) => (await getVite()).transformIndexHtml(url, await readFile(path.join(root, name), 'utf8'));
+  render = async () => {
+    const vite = await getVite();
+    return ((await vite.ssrLoadModule('/src/client/site/entry-server.tsx')) as { render: Render }).render;
+  };
 }
 
 const langOf = (req: Request): Lang => (req.query.lang === 'en' ? 'en' : 'vi');
@@ -369,6 +392,9 @@ app.get('/sitemap.xml', async (_req, res) => {
   const content = stored.content;
   res.type('application/xml').send(sitemap(await publishedPosts(store), openJobs(content.jobs ?? []), content.projects.filter(hasCaseStudy), stored.updatedAt));
 });
+app.get('/robots.txt', (_req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nDisallow: /cdn-cgi/\n\nSitemap: ${SITE}/sitemap.xml\n`);
+});
 
 app.get(['/blog', '/blog/'], async (req, res) => {
   const lang = langOf(req);
@@ -606,9 +632,14 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (!res.headersSent) res.status(500).type('text').send('Internal Server Error');
 });
 
-app.listen(PORT, () => {
-  console.log(`VieTure Studio server: http://localhost:${PORT} (${isProd ? 'production' : 'development'}, SMTP ${smtpReady ? 'on' : 'off'})`);
-});
+// Vercel imports this module as the function handler; a listener there would leak.
+if (!isVercel) {
+  app.listen(PORT, () => {
+    console.log(`VieTure Studio server: http://localhost:${PORT} (${isProd ? 'production' : 'development'}, SMTP ${smtpReady ? 'on' : 'off'})`);
+  });
+}
+
+export default app;
 
 /** First start: create the first administrator from ADMIN_USERNAME / ADMIN_PASSWORD if there are no users yet. */
 async function bootstrapAdmin() {

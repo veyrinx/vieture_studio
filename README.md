@@ -56,7 +56,7 @@ src/
       App.tsx, schema.ts      #   schema.ts = mô tả các mục admin có thể sửa
       state/, fields/, layout/, ui/, lib/
       pages/<Trang>/          #   Dashboard/, Content/, Blog/, Inbox/, Applications/, Users/…
-public/                       # favicon, logo, og.png, robots.txt
+public/                       # favicon, logo, og.png
 Dockerfile, docker-compose.yml, deploy/ (nginx.conf, deploy.sh)
 ```
 
@@ -149,6 +149,24 @@ cd /opt/VieTure-Studio && docker compose stop
 tar xzf /root/backups/vieture-data-YYYYMMDD-HHMMSS.tgz && docker compose start
 ```
 Yêu cầu liên hệ được lưu ở `./data/contacts.jsonl` trên VPS.
+
+## Triển khai lên Vercel
+
+Repo đã có sẵn `vercel.json` + `api/index.js`; chỉ cần import repo vào Vercel (Framework Preset: **Other**), Vercel tự chạy `npm run build` và đưa toàn bộ Express/SSR vào một Function.
+
+Đặt các biến môi trường trong **Project Settings → Environment Variables**:
+
+| Biến | Ý nghĩa |
+| --- | --- |
+| `SITE_URL` | Tên miền công khai, ví dụ `https://vieturestudio.vercel.app` (dùng cho canonical, sitemap, OG). Bỏ trống thì tự dùng `VERCEL_PROJECT_PRODUCTION_URL` |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Tạo tài khoản quản trị ở lần chạy đầu (mật khẩu ≥ 10 ký tự) |
+| `SMTP_*`, `CONTACT_TO`, `TELEGRAM_*` | Tuỳ chọn, giống bản VPS |
+
+Lưu ý trên Vercel:
+
+- Ổ đĩa chỉ ghi được ở `/tmp` và **không bền vững**: nội dung admin sửa, ảnh upload, hộp thư, hồ sơ ứng tuyển sẽ mất khi Function khởi động lại hoặc deploy phiên bản mới. Dùng bản Docker/VPS nếu cần lưu dữ liệu lâu dài.
+- Request body tối đa 4.5MB, nên CV/ảnh lớn hơn ~3MB có thể bị Vercel chặn trước khi tới server.
+- Mỗi instance có session admin riêng (đăng nhập lại khi đổi instance).
 
 ## Chất lượng
 
