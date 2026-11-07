@@ -159,6 +159,7 @@ Repo đã có sẵn `vercel.json` + `api/index.js`; chỉ cần import repo vào
 | Biến | Ý nghĩa |
 | --- | --- |
 | `SITE_URL` | Tên miền công khai, ví dụ `https://vieturestudio.vercel.app` (dùng cho canonical, sitemap, OG). Bỏ trống thì tự dùng `VERCEL_PROJECT_PRODUCTION_URL` |
+| `DATABASE_URL` | Chuỗi kết nối PostgreSQL của Neon; bắt buộc khi chạy ứng dụng |
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Tạo tài khoản quản trị ở lần chạy đầu (mật khẩu ≥ 10 ký tự) |
 | `SMTP_*`, `CONTACT_TO`, `TELEGRAM_*` | Tuỳ chọn, giống bản VPS |
 
