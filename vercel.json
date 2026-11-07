@@ -6,11 +6,7 @@
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }],
   "functions": {
     "api/index.js": {
-      "includeFiles": [
-        "dist/**",
-        "node_modules/@fontsource/inter/**",
-        "node_modules/@resvg/**"
-      ]
+      "includeFiles": "{dist/**,node_modules/@fontsource/inter/**,node_modules/@resvg/**}"
     }
   }
 }
