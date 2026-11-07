@@ -14,4 +14,7 @@ services:
       # Host port is configurable (HOST_PORT in .env) so it can sit next to other apps
       - "127.0.0.1:${HOST_PORT:-3000}:3000"
     volumes:
-      - ./data:/app/data
+      - vieture-data:/app/data
+
+volumes:
+  vieture-data:

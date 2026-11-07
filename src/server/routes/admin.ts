@@ -1,6 +1,4 @@
-import { readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { postsRouter } from './posts.ts';
 import rateLimit from 'express-rate-limit';
@@ -268,23 +266,20 @@ export function adminRouter(store: Store) {
 
   r.get('/applications/:id/cv', async (req, res) => {
     const app = (await store.readApplications()).find((a) => a.id === req.params.id);
-    const file = store.cvPath(app);
+    const file = app && (await store.getApplicationFile(app.id, 'cv'));
     if (!file) return res.status(404).json({ ok: false, error: 'not_found' });
-    const safeName = `CV-${String(app!.name).replace(/[^\p{L}\p{N}]+/gu, '-')}.pdf`;
+    const safeName = `CV-${String(app.name).replace(/[^\p{L}\p{N}]+/gu, '-')}.pdf`;
     res.set({ 'Content-Type': 'application/pdf', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox" });
     res.attachment(safeName);
-    res.sendFile(file, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
+    res.send(file.data);
   });
 
   r.get('/applications/:id/photo', async (req, res) => {
-    const file = store.photoPath((await store.readApplications()).find((a) => a.id === req.params.id));
+    const file = await store.getApplicationFile(String(req.params.id), 'photo');
     if (!file) return res.status(404).end();
-    res.set({ 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
-    res.sendFile(file, (err) => {
-      if (err && !res.headersSent) res.status(404).end();
-    });
+    const mime = file.name.toLowerCase().endsWith('.png') ? 'image/png' : file.name.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+    res.set({ 'Content-Type': mime, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
+    res.send(file.data);
   });
 
   r.patch('/applications/:id', async (req, res) => {
@@ -334,14 +329,8 @@ export function adminRouter(store: Store) {
 
   // ---------- uploads ----------
   r.get('/uploads', async (_req, res) => {
-    const names = await readdir(store.files.uploads);
-    const items = await Promise.all(
-      names.map(async (name) => {
-        const s = await stat(path.join(store.files.uploads, name));
-        return { url: `/uploads/${name}`, name, size: s.size, at: s.mtime };
-      })
-    );
-    res.json({ ok: true, items: items.sort((a, b) => b.at.getTime() - a.at.getTime()) });
+    const items = (await store.listUploads()).map((u) => ({ url: `/uploads/${u.name}`, name: u.name, size: u.size, at: u.at }));
+    res.json({ ok: true, items });
   });
 
   r.post('/uploads', async (req, res) => {
@@ -351,18 +340,15 @@ export function adminRouter(store: Store) {
     const type = IMAGE_TYPES.find((t) => t.test(buf));
     if (!type) return res.status(400).json({ ok: false, error: 'Chỉ nhận ảnh PNG, JPG, WebP hoặc GIF.' });
     const name = `${Date.now().toString(36)}-${randomBytes(6).toString('hex')}.${type.ext}`;
-    await writeFile(path.join(store.files.uploads, name), buf);
+    const mime = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }[type.ext]!;
+    await store.addUpload(name, mime, buf);
     res.json({ ok: true, url: `/uploads/${name}` });
   });
 
   r.delete('/uploads/:name', async (req, res) => {
     if (!/^[\w-]+\.(png|jpg|webp|gif)$/.test(req.params.name)) return res.status(400).json({ ok: false });
-    try {
-      await unlink(path.join(store.files.uploads, req.params.name));
-      res.json({ ok: true });
-    } catch {
-      res.status(404).json({ ok: false });
-    }
+    const ok = await store.deleteUpload(req.params.name);
+    res.status(ok ? 200 : 404).json({ ok });
   });
 
   // ---------- users (admins only) ----------

@@ -4,6 +4,7 @@
 import 'react';
 import 'react-dom/server';
 import 'react/jsx-runtime';
+import 'pg';
 import app from '../dist/server/index.js';
 
 export default app;

@@ -1,24 +1,27 @@
-// File-based storage in DATA_DIR (a Docker volume on the VPS):
-//   content.json        — everything shown on the website (edited in /admin)
-//   users.json          — admin accounts
-//   contacts.jsonl      — contact form submissions, one JSON object per line
-//   history/*.json      — previous versions of content.json (for restore)
-//   uploads/            — images uploaded from the admin panel (public)
-//   posts.json          — blog posts
-//   applications.jsonl  — job applications;  applications/ — their CV files (private, admin only)
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+// PostgreSQL storage (Neon). Data lives in these tables:
+//   site_content       — everything shown on the website (edited in /admin)
+//   content_history    — previous versions of site_content (for restore)
+//   users              — admin accounts
+//   contacts           — contact form submissions
+//   posts              — blog posts
+//   applications       — job applications + their CV/portrait files
+//   uploads            — images uploaded from the admin panel (public)
+// On first start, data/ from the old file-based store is imported automatically.
 import { randomUUID } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { defaultContent } from '../../shared/default-content.ts';
 import type { Application, Contact, Post, SiteContent, StoredContent, User } from '../../shared/types.ts';
+import pool from './db.ts';
 
 const HISTORY_LIMIT = 30;
 const MAX_CONTENT_BYTES = 1024 * 1024;
 
-// Content read from disk may predate the current shape, so the merge works on plain objects.
+// Content read from the database may predate the current shape, so the merge works on plain objects.
 type Loose = Record<string, any>;
 const clone = <T>(v: T): T => structuredClone(v);
 const isObj = (v: unknown): v is Loose => v !== null && typeof v === 'object' && !Array.isArray(v);
+const json = (v: unknown) => JSON.stringify(v);
 
 export class StoreError extends Error {
   code: 'CONFLICT' | 'INVALID' | 'NOT_FOUND';
@@ -28,7 +31,7 @@ export class StoreError extends Error {
   }
 }
 
-// Writes go through one queue so concurrent requests never interleave on disk.
+// Writes go through one queue so concurrent requests never interleave.
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
   const run = queue.then(fn, fn);
@@ -36,44 +39,49 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function writeAtomic(file: string, data: string, mode = 0o644) {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, data, { mode });
-  await rename(tmp, file);
-}
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS site_content (
+  id smallint PRIMARY KEY CHECK (id = 1),
+  data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS content_history (
+  id bigserial PRIMARY KEY,
+  data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+  username text PRIMARY KEY,
+  ord integer NOT NULL,
+  data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS contacts (
+  id text PRIMARY KEY,
+  seq bigserial NOT NULL,
+  data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS posts (
+  id text PRIMARY KEY,
+  ord integer NOT NULL,
+  data jsonb NOT NULL
+);
+CREATE TABLE IF NOT EXISTS applications (
+  id text PRIMARY KEY,
+  seq bigserial NOT NULL,
+  data jsonb NOT NULL,
+  cv_name text,
+  cv_data bytea,
+  photo_name text,
+  photo_data bytea
+);
+CREATE TABLE IF NOT EXISTS uploads (
+  name text PRIMARY KEY,
+  mime text NOT NULL,
+  size integer NOT NULL,
+  at text NOT NULL,
+  data bytea NOT NULL
+);
+`;
 
-async function readJson<T>(file: string, fallback: T): Promise<T> {
-  try {
-    return JSON.parse(await readFile(file, 'utf8')) as T;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
-    throw err;
-  }
-}
-
-async function readLines(file: string): Promise<Loose[]> {
-  let raw = '';
-  try {
-    raw = await readFile(file, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line) as Loose;
-      } catch {
-        return null;
-      }
-    })
-    .filter((x): x is Loose => x !== null);
-}
-
-const linesOf = (list: unknown[]) => list.map((x) => JSON.stringify(x)).join('\n') + (list.length ? '\n' : '');
-
-/** Fill in anything added to the defaults after this content.json was created. */
+/** Fill in anything added to the defaults after this content was created. */
 export function withDefaults(content: unknown): SiteContent {
   const c: Loose = isObj(content) ? clone(content) : {};
   const d = defaultContent as unknown as Loose;
@@ -144,136 +152,291 @@ export interface HistoryItem {
 
 export type Store = ReturnType<typeof createStore>;
 
+async function readJsonFile<T>(file: string, fallback: T): Promise<T> {
+  try {
+    return JSON.parse(await readFile(file, 'utf8')) as T;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return fallback;
+    throw err;
+  }
+}
+
+async function readLines(file: string): Promise<Loose[]> {
+  let raw = '';
+  try {
+    raw = await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line) as Loose;
+      } catch {
+        return null;
+      }
+    })
+    .filter((x): x is Loose => x !== null);
+}
+
+const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+
 export function createStore(dataDir: string) {
-  const files = {
-    content: path.join(dataDir, 'content.json'),
-    users: path.join(dataDir, 'users.json'),
-    contacts: path.join(dataDir, 'contacts.jsonl'),
-    history: path.join(dataDir, 'history'),
-    uploads: path.join(dataDir, 'uploads'),
-    applications: path.join(dataDir, 'applications.jsonl'),
-    cvs: path.join(dataDir, 'applications'),
-    posts: path.join(dataDir, 'posts.json'),
-  };
   let contentCache!: StoredContent;
+  let contentCheckedAt = 0;
+
+  async function isEmpty(table: string) {
+    const { rows } = await pool.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`);
+    return rows[0].n === '0';
+  }
+
+  /** Import data/ from the previous file-based store once, when the matching table is still empty. */
+  async function importLegacy() {
+    const legacyDir = dataDir;
+    try {
+      if (await isEmpty('site_content')) {
+        const stored = await readJsonFile<StoredContent | null>(path.join(legacyDir, 'content.json'), null);
+        if (stored?.content) {
+          await pool.query('INSERT INTO site_content (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING', [json({ ...stored, content: withDefaults(stored.content) })]);
+        }
+      }
+      if (await isEmpty('users')) {
+        const users = await readJsonFile<User[]>(path.join(legacyDir, 'users.json'), []);
+        for (const [i, user] of users.entries()) {
+          await pool.query('INSERT INTO users (username, ord, data) VALUES ($1, $2, $3::jsonb) ON CONFLICT (username) DO NOTHING', [user.username, i, json(user)]);
+        }
+      }
+      if (await isEmpty('posts')) {
+        const posts = await readJsonFile<Post[]>(path.join(legacyDir, 'posts.json'), []);
+        for (const [i, post] of posts.entries()) {
+          await pool.query('INSERT INTO posts (id, ord, data) VALUES ($1, $2, $3::jsonb) ON CONFLICT (id) DO NOTHING', [post.id, i, json(post)]);
+        }
+      }
+      if (await isEmpty('contacts')) {
+        const lines = await readLines(path.join(legacyDir, 'contacts.jsonl'));
+        for (const [i, line] of lines.entries()) {
+          const contact = { id: line.id ?? `legacy-${i}-${Date.parse(line.at) || 0}`, read: false, ...line } as Contact;
+          await pool.query('INSERT INTO contacts (id, data) VALUES ($1, $2::jsonb) ON CONFLICT (id) DO NOTHING', [contact.id, json(contact)]);
+        }
+      }
+      if (await isEmpty('applications')) {
+        const lines = await readLines(path.join(legacyDir, 'applications.jsonl'));
+        for (const line of lines) {
+          const app = line as unknown as Application;
+          let cv: Buffer | null = null;
+          let photo: Buffer | null = null;
+          try {
+            if (app.cvFile) cv = await readFile(path.join(legacyDir, 'applications', path.basename(app.cvFile)));
+          } catch {
+            cv = null;
+          }
+          try {
+            if (app.photoFile) photo = await readFile(path.join(legacyDir, 'applications', path.basename(app.photoFile)));
+          } catch {
+            photo = null;
+          }
+          await pool.query(
+            'INSERT INTO applications (id, data, cv_name, cv_data, photo_name, photo_data) VALUES ($1, $2::jsonb, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING',
+            [app.id, json(app), cv ? (app.cvFile ?? null) : null, cv, photo ? (app.photoFile ?? null) : null, photo]
+          );
+        }
+      }
+      if (await isEmpty('content_history')) {
+        const names = await readdir(path.join(legacyDir, 'history')).catch(() => [] as string[]);
+        for (const name of names.filter((f) => f.endsWith('.json')).sort()) {
+          const version = await readJsonFile<StoredContent | null>(path.join(legacyDir, 'history', name), null);
+          if (version) await pool.query('INSERT INTO content_history (data) VALUES ($1::jsonb)', [json(version)]);
+        }
+      }
+      if (await isEmpty('uploads')) {
+        const names = await readdir(path.join(legacyDir, 'uploads')).catch(() => [] as string[]);
+        for (const name of names) {
+          const ext = name.split('.').pop() ?? '';
+          if (!MIME[ext]) continue;
+          const data = await readFile(path.join(legacyDir, 'uploads', name)).catch(() => null);
+          if (!data) continue;
+          await pool.query('INSERT INTO uploads (name, mime, size, at, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO NOTHING', [
+            name,
+            MIME[ext],
+            data.length,
+            new Date().toISOString(),
+            data,
+          ]);
+        }
+      }
+    } catch (err) {
+      console.warn('[store] legacy import skipped:', (err as Error).message);
+    }
+  }
 
   async function init() {
-    await mkdir(files.history, { recursive: true });
-    await mkdir(files.uploads, { recursive: true });
-    await mkdir(files.cvs, { recursive: true, mode: 0o700 });
-    const stored = await readJson<StoredContent | null>(files.content, null);
-    if (!stored) {
-      contentCache = { rev: 1, updatedAt: new Date().toISOString(), updatedBy: 'system', content: clone(defaultContent) };
-      await writeAtomic(files.content, JSON.stringify(contentCache, null, 2));
+    await pool.query(SCHEMA);
+    await importLegacy();
+    const { rows } = await pool.query<{ data: StoredContent }>('SELECT data FROM site_content WHERE id = 1');
+    if (rows[0]?.data) {
+      contentCache = { ...rows[0].data, content: withDefaults(rows[0].data.content) };
     } else {
-      contentCache = { ...stored, content: withDefaults(stored.content) };
+      const stored: StoredContent = { rev: 1, updatedAt: new Date().toISOString(), updatedBy: 'system', content: clone(defaultContent) };
+      await pool.query('INSERT INTO site_content (id, data) VALUES (1, $1::jsonb) ON CONFLICT (id) DO NOTHING', [json(stored)]);
+      contentCache = stored;
     }
   }
 
   // ---------- content ----------
   const getContent = () => contentCache;
 
+  /** Pick up content saved by another instance at most every few seconds. */
+  const syncContent = async () => {
+    const now = Date.now();
+    if (now - contentCheckedAt < 5000) return;
+    contentCheckedAt = now;
+    const { rows } = await pool.query<{ data: StoredContent }>('SELECT data FROM site_content WHERE id = 1');
+    const stored = rows[0]?.data;
+    if (stored && stored.rev > contentCache.rev) contentCache = { ...stored, content: withDefaults(stored.content) };
+  };
+
   const saveContent = (content: unknown, { rev, user }: { rev: unknown; user: string }) =>
     serial(async () => {
-      if (rev !== contentCache.rev) throw new StoreError('CONFLICT', 'conflict');
       const problem = validateContent(content);
       if (problem) throw new StoreError('INVALID', problem);
-      // keep the version being replaced
-      const stamp = contentCache.updatedAt.replace(/[:.]/g, '-');
-      await writeAtomic(path.join(files.history, `${stamp}_r${contentCache.rev}.json`), JSON.stringify(contentCache));
-      const old = (await readdir(files.history)).filter((f) => f.endsWith('.json')).sort();
-      for (const f of old.slice(0, Math.max(0, old.length - HISTORY_LIMIT))) await unlink(path.join(files.history, f));
-
-      contentCache = { rev: contentCache.rev + 1, updatedAt: new Date().toISOString(), updatedBy: user, content: content as SiteContent };
-      await writeAtomic(files.content, JSON.stringify(contentCache, null, 2));
-      return contentCache;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query<{ data: StoredContent }>('SELECT data FROM site_content WHERE id = 1 FOR UPDATE');
+        const current = rows[0]?.data;
+        if (!current) throw new StoreError('INVALID', 'content missing');
+        if (rev !== current.rev) throw new StoreError('CONFLICT', 'conflict');
+        const next: StoredContent = { rev: current.rev + 1, updatedAt: new Date().toISOString(), updatedBy: user, content: content as SiteContent };
+        await client.query('INSERT INTO content_history (data) VALUES ($1::jsonb)', [json(current)]);
+        await client.query('DELETE FROM content_history WHERE id NOT IN (SELECT id FROM content_history ORDER BY id DESC LIMIT $1)', [HISTORY_LIMIT]);
+        await client.query('UPDATE site_content SET data = $1::jsonb WHERE id = 1', [json(next)]);
+        await client.query('COMMIT');
+        contentCache = next;
+        return next;
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     });
 
   async function listHistory(): Promise<HistoryItem[]> {
-    const names = (await readdir(files.history)).filter((f) => f.endsWith('.json')).sort().reverse();
-    const out: HistoryItem[] = [];
-    for (const id of names) {
-      const v = await readJson<StoredContent | null>(path.join(files.history, id), null);
-      if (v) out.push({ id, rev: v.rev, updatedAt: v.updatedAt, updatedBy: v.updatedBy });
-    }
-    return out;
+    const { rows } = await pool.query<{ id: string; data: StoredContent }>('SELECT id, data FROM content_history ORDER BY id DESC');
+    return rows.map((r) => ({ id: String(r.id), rev: r.data.rev, updatedAt: r.data.updatedAt, updatedBy: r.data.updatedBy }));
   }
 
   async function restoreHistory(id: string, user: string) {
-    if (!/^[\w-]+\.json$/.test(id)) throw new StoreError('INVALID', 'bad id');
-    const v = await readJson<StoredContent | null>(path.join(files.history, id), null);
-    if (!v) throw new StoreError('NOT_FOUND', 'not found');
-    return saveContent(withDefaults(v.content), { rev: contentCache.rev, user: `${user} (restore r${v.rev})` });
+    if (!/^\d+$/.test(id)) throw new StoreError('INVALID', 'bad id');
+    const { rows } = await pool.query<{ data: StoredContent }>('SELECT data FROM content_history WHERE id = $1', [id]);
+    const version = rows[0]?.data;
+    if (!version) throw new StoreError('NOT_FOUND', 'not found');
+    const current = await pool.query<{ data: StoredContent }>('SELECT data FROM site_content WHERE id = 1');
+    return saveContent(withDefaults(version.content), { rev: current.rows[0]?.data.rev, user: `${user} (restore r${version.rev})` });
   }
 
   // ---------- users ----------
-  const getUsers = () => readJson<User[]>(files.users, []);
-  // password hashes: readable by the app user only
-  const writeUsers = (users: User[]) => writeAtomic(files.users, JSON.stringify(users, null, 2), 0o600);
-  const saveUsers = (users: User[]) => serial(() => writeUsers(users));
+  const getUsers = async (): Promise<User[]> => {
+    const { rows } = await pool.query<{ data: User }>('SELECT data FROM users ORDER BY ord');
+    return rows.map((r) => r.data);
+  };
+
+  async function replaceUsers(users: User[]) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM users');
+      for (const [i, user] of users.entries()) {
+        await client.query('INSERT INTO users (username, ord, data) VALUES ($1, $2, $3::jsonb)', [user.username, i, json(user)]);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  const saveUsers = (users: User[]) => serial(() => replaceUsers(users));
   /** Read-modify-write in one queued step, so concurrent requests cannot drop each other's changes.
    *  `fn` edits the list in place; returning false skips the write. Resolves to fn's result. */
   const updateUsers = <R>(fn: (users: User[]) => R | Promise<R>) =>
     serial(async () => {
       const users = await getUsers();
       const result = await fn(users);
-      if (result !== false) await writeUsers(users);
+      if (result !== false) await replaceUsers(users);
       return result;
     });
 
   // ---------- contacts ----------
   async function readContacts(): Promise<Contact[]> {
-    // older lines had no id; derive a stable one
-    return (await readLines(files.contacts)).map((c, i) => ({ id: c.id ?? `legacy-${i}-${Date.parse(c.at) || 0}`, read: false, ...c }) as Contact);
+    const { rows } = await pool.query<{ data: Contact }>('SELECT data FROM contacts ORDER BY seq');
+    return rows.map((r) => r.data);
   }
-  const writeContacts = (list: Contact[]) => writeAtomic(files.contacts, linesOf(list));
 
   const addContact = (record: Omit<Contact, 'id' | 'read'>) =>
     serial(async () => {
-      const list = await readContacts();
-      list.push({ id: randomUUID(), read: false, ...record });
-      await writeContacts(list);
+      const item: Contact = { id: randomUUID(), read: false, ...record };
+      await pool.query('INSERT INTO contacts (id, data) VALUES ($1, $2::jsonb)', [item.id, json(item)]);
     });
 
   const updateContact = (id: string, patch: Partial<Contact>) =>
     serial(async () => {
-      const list = await readContacts();
-      const item = list.find((c) => c.id === id);
-      if (!item) return null;
-      Object.assign(item, patch);
-      await writeContacts(list);
+      const { rows } = await pool.query<{ data: Contact }>('SELECT data FROM contacts WHERE id = $1', [id]);
+      if (!rows[0]) return null;
+      const item = { ...rows[0].data, ...patch };
+      await pool.query('UPDATE contacts SET data = $2::jsonb WHERE id = $1', [id, json(item)]);
       return item;
     });
 
   const deleteContact = (id: string) =>
     serial(async () => {
-      const list = await readContacts();
-      const next = list.filter((c) => c.id !== id);
-      if (next.length === list.length) return false;
-      await writeContacts(next);
-      return true;
+      const result = await pool.query('DELETE FROM contacts WHERE id = $1', [id]);
+      return (result.rowCount ?? 0) > 0;
     });
 
   // ---------- blog posts ----------
-  let postsCache: Post[] | null = null;
-  const getPosts = async () => (postsCache ??= await readJson<Post[]>(files.posts, []));
+  const getPosts = async (): Promise<Post[]> => {
+    const { rows } = await pool.query<{ data: Post }>('SELECT data FROM posts ORDER BY ord');
+    return rows.map((r) => r.data);
+  };
+
+  async function replacePosts(posts: Post[]) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM posts');
+      for (const [i, post] of posts.entries()) {
+        await client.query('INSERT INTO posts (id, ord, data) VALUES ($1, $2, $3::jsonb)', [post.id, i, json(post)]);
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
   /** Read-modify-write; `fn` edits the list in place and may return a result (false = no write). */
   const updatePosts = <R>(fn: (posts: Post[]) => R | Promise<R>) =>
     serial(async () => {
-      const posts = structuredClone(await getPosts());
+      const posts = await getPosts();
       const result = await fn(posts);
-      if (result !== false) {
-        await writeAtomic(files.posts, JSON.stringify(posts, null, 2));
-        postsCache = posts;
-      }
+      if (result !== false) await replacePosts(posts);
       return result;
     });
 
-  // ---------- job applications (same line-per-record format as contacts) ----------
-  const readApplications = async () => (await readLines(files.applications)) as Application[];
-  const writeApplications = (list: Application[]) => writeAtomic(files.applications, linesOf(list), 0o600);
+  // ---------- job applications ----------
+  const readApplications = async (): Promise<Application[]> => {
+    const { rows } = await pool.query<{ data: Application }>('SELECT data FROM applications ORDER BY seq');
+    return rows.map((r) => r.data);
+  };
 
-  /** Saves the CV and portrait (if any) under applications/<id>.pdf / <id>-photo.<ext> and appends the record. */
+  /** Saves the CV and portrait (if any) with the record. */
   const addApplication = (
     record: Omit<Application, 'id' | 'status' | 'note' | 'cvFile' | 'photoFile'>,
     cvBuffer: Buffer | null,
@@ -281,54 +444,72 @@ export function createStore(dataDir: string) {
   ) =>
     serial(async () => {
       const id = randomUUID();
-      let cvFile: string | null = null;
-      if (cvBuffer) {
-        cvFile = `${id}.pdf`;
-        await writeFile(path.join(files.cvs, cvFile), cvBuffer, { mode: 0o600 });
-      }
-      let photoFile: string | null = null;
-      if (photo) {
-        photoFile = `${id}-photo.${photo.ext}`;
-        await writeFile(path.join(files.cvs, photoFile), photo.buf, { mode: 0o600 });
-      }
-      const list = await readApplications();
+      const cvFile = cvBuffer ? `${id}.pdf` : null;
+      const photoFile = photo ? `${id}-photo.${photo.ext}` : null;
       const item: Application = { id, status: 'new', note: '', ...record, cvFile, photoFile, log: [{ at: record.at, by: record.name, text: 'Nộp hồ sơ' }] };
-      list.push(item);
-      await writeApplications(list);
+      await pool.query('INSERT INTO applications (id, data, cv_name, cv_data, photo_name, photo_data) VALUES ($1, $2::jsonb, $3, $4, $5, $6)', [
+        id,
+        json(item),
+        cvFile,
+        cvBuffer,
+        photoFile,
+        photo?.buf ?? null,
+      ]);
       return item;
     });
 
   /** Applies the patch and records what changed (by whom) in the application's log. */
   const updateApplication = (id: string, patch: Partial<Application>, entries: Array<{ by: string; text: string }> = []) =>
     serial(async () => {
-      const list = await readApplications();
-      const item = list.find((a) => a.id === id);
-      if (!item) return null;
-      Object.assign(item, patch);
+      const { rows } = await pool.query<{ data: Application }>('SELECT data FROM applications WHERE id = $1', [id]);
+      if (!rows[0]) return null;
+      const item = { ...rows[0].data, ...patch };
       const at = new Date().toISOString();
       if (entries.length) item.log = [...(item.log ?? []), ...entries.map((e) => ({ at, ...e }))].slice(-100);
-      await writeApplications(list);
+      await pool.query('UPDATE applications SET data = $2::jsonb WHERE id = $1', [id, json(item)]);
       return item;
     });
 
   const deleteApplication = (id: string) =>
     serial(async () => {
-      const list = await readApplications();
-      const item = list.find((a) => a.id === id);
-      if (!item) return false;
-      for (const f of [item.cvFile, item.photoFile]) if (f) await unlink(path.join(files.cvs, path.basename(f))).catch(() => {});
-      await writeApplications(list.filter((a) => a !== item));
-      return true;
+      const result = await pool.query('DELETE FROM applications WHERE id = $1', [id]);
+      return (result.rowCount ?? 0) > 0;
     });
 
-  const cvPath = (application: Application | undefined) =>
-    application?.cvFile ? path.join(files.cvs, path.basename(application.cvFile)) : null;
-  const photoPath = (application: Application | undefined) =>
-    application?.photoFile ? path.join(files.cvs, path.basename(application.photoFile)) : null;
+  async function getApplicationFile(id: string, kind: 'cv' | 'photo'): Promise<{ name: string; data: Buffer } | null> {
+    const nameColumn = kind === 'cv' ? 'cv_name' : 'photo_name';
+    const dataColumn = kind === 'cv' ? 'cv_data' : 'photo_data';
+    const { rows } = await pool.query<{ name: string | null; data: Buffer | null }>(`SELECT ${nameColumn} AS name, ${dataColumn} AS data FROM applications WHERE id = $1`, [id]);
+    if (!rows[0]?.data) return null;
+    return { name: rows[0].name ?? '', data: rows[0].data };
+  }
+
+  // ---------- uploads (stored in the database so they survive redeploys) ----------
+  async function listUploads(): Promise<Array<{ name: string; size: number; at: string }>> {
+    const { rows } = await pool.query<{ name: string; size: number; at: string }>('SELECT name, size, at FROM uploads ORDER BY at DESC');
+    return rows;
+  }
+
+  async function addUpload(name: string, mime: string, data: Buffer) {
+    await pool.query(
+      'INSERT INTO uploads (name, mime, size, at, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET mime = EXCLUDED.mime, size = EXCLUDED.size, at = EXCLUDED.at, data = EXCLUDED.data',
+      [name, mime, data.length, new Date().toISOString(), data]
+    );
+  }
+
+  async function deleteUpload(name: string) {
+    const result = await pool.query('DELETE FROM uploads WHERE name = $1', [name]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async function getUpload(name: string): Promise<{ name: string; mime: string; data: Buffer } | null> {
+    const { rows } = await pool.query<{ name: string; mime: string; data: Buffer }>('SELECT name, mime, data FROM uploads WHERE name = $1', [name]);
+    return rows[0] ?? null;
+  }
 
   return {
-    files,
     init,
+    syncContent,
     getContent,
     saveContent,
     listHistory,
@@ -346,7 +527,10 @@ export function createStore(dataDir: string) {
     addApplication,
     updateApplication,
     deleteApplication,
-    cvPath,
-    photoPath,
+    getApplicationFile,
+    listUploads,
+    addUpload,
+    deleteUpload,
+    getUpload,
   };
 }

@@ -90,7 +90,7 @@ app.use(
 );
 app.use(compression());
 app.use((_req, _res, next) => {
-  ready.then(() => next(), next);
+  ready.then(() => store.syncContent()).then(() => next(), next);
 });
 
 // ---------- API ----------
@@ -591,17 +591,20 @@ app.get(['/admin', '/admin/'], async (req, res) => {
 });
 
 // Images uploaded from the admin panel
-app.use(
-  '/uploads',
-  express.static(store.files.uploads, {
-    index: false,
-    dotfiles: 'deny',
-    setHeaders(res) {
-      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'");
-    },
-  })
-);
+app.get('/uploads/:name', async (req, res, next) => {
+  if (!/^[\w-]+\.(png|jpg|webp|gif)$/.test(req.params.name)) return next();
+  try {
+    const file = await store.getUpload(req.params.name);
+    if (!file) return next();
+    res
+      .set('Cache-Control', 'public, max-age=31536000, immutable')
+      .set('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'")
+      .type(file.mime)
+      .send(file.data);
+  } catch (err) {
+    next(err);
+  }
+});
 
 if (isProd) {
   app.use(
